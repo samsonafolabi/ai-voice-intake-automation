@@ -83,7 +83,7 @@ The demo shows:
 
 ## Workflow File
 
-The full n8n workflow (importable JSON) is included in this repo: [`workflow.json`](./workflow.json)
+The full n8n workflow (importable JSON) is included in this repo: [`HVAC Inbound Voicenotes_Calls`](./HVAC Inbound Voicenotes_Calls)
 
 ## Built By
 
