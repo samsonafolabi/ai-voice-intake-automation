@@ -1,0 +1,472 @@
+{
+  "name": "HVAC Inbound Voicenotes/Calls",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -688,
+        -64
+      ],
+      "id": "d853ccb3-41de-459f-a008-63939ea0a855",
+      "name": "Incoming Voice Note",
+      "webhookId": "512e3862-e646-4883-830d-d57493ec77b4",
+      "retryOnFail": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "nU9ByfbGY4Qc7huH",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "fileId": "={{ $json.message.voice.file_id }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -352,
+        -64
+      ],
+      "id": "0ac62b6b-204e-42e8-add9-21c0f540d729",
+      "name": "Download Audio",
+      "webhookId": "518c488b-aec7-432a-b3f6-a6c2ee42dfca",
+      "credentials": {
+        "telegramApi": {
+          "id": "nU9ByfbGY4Qc7huH",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "for (const item of items) {\n  if (item.binary && item.binary.data) {\n    item.binary.data.fileName = 'voice.ogg';\n    item.binary.data.mimeType = 'audio/ogg';\n  }\n}\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        -160
+      ],
+      "id": "a6fd6515-f9e7-46e2-86d6-c7f56f9ba7f5",
+      "name": "Fix Audio Format"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/audio/transcriptions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "model",
+              "value": "whisper-large-v3"
+            },
+            {
+              "name": "language",
+              "value": "en"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        32,
+        -64
+      ],
+      "id": "8375695c-3ad4-4e3b-9805-e928ae5993bb",
+      "name": "Transcribe Audio",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "vBjf8wSMZouIovyU",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"openai/gpt-oss-20b\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an HVAC dispatch assistant. Given a transcript from a customer or technician, classify it and respond with ONLY valid JSON, no markdown, no explanation. Format: {\\\"urgency\\\": \\\"emergency\\\" or \\\"routine\\\", \\\"issue_type\\\": string, \\\"equipment\\\": string, \\\"summary\\\": string (one sentence)}. Emergency = no heat, no cooling, gas smell, water leak/flooding, electrical hazard. Routine = maintenance, quotes, non-urgent repairs.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $json.text }}\"\n    }\n  ],\n  \"temperature\": 0.2\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        -160
+      ],
+      "id": "edc2d9b2-95f9-4224-98d3-b0b8dabf85cd",
+      "name": "Classify Urgency",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "vBjf8wSMZouIovyU",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const content = $input.first().json.choices[0].message.content;\nconst parsed = JSON.parse(content);\n\nreturn [{\n  json: {\n    transcript: $('Transcribe Audio').first().json.text,\n    urgency: parsed.urgency,\n    issue_type: parsed.issue_type,\n    equipment: parsed.equipment,\n    summary: parsed.summary,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        -64
+      ],
+      "id": "fdc537c5-4a86-4369-b328-cf4cffeaa8b8",
+      "name": "Parse Classification"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4c3428ef-80ca-44e6-a19a-999c706bbc95",
+              "leftValue": "={{ $json.urgency }}",
+              "rightValue": "emergency",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        624,
+        -64
+      ],
+      "id": "4d288f16-43a8-4169-9333-f879167cf629",
+      "name": "Check If Emergency"
+    },
+    {
+      "parameters": {
+        "chatId": "6794720150",
+        "text": "=EMERGENCY CALL Issue: {{ $json.issue_type }} Equipment: {{ $json.equipment }} Summary: {{ $json.summary }} Transcript: \"{{ $json.transcript }}\"",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        864,
+        -160
+      ],
+      "id": "67002177-5bba-47ac-9344-6af5d8081333",
+      "name": "Alert Dispatcher",
+      "webhookId": "d81f4abd-b55c-4896-a072-ab07f3f5978d",
+      "credentials": {
+        "telegramApi": {
+          "id": "nU9ByfbGY4Qc7huH",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1J1xQU-x8aP7Oj8laLpIc2m0KTJqnK8USJfBH2Fv54w8",
+          "mode": "list",
+          "cachedResultName": "Customer Support & Issue Tracker",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1J1xQU-x8aP7Oj8laLpIc2m0KTJqnK8USJfBH2Fv54w8/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1475978946,
+          "mode": "list",
+          "cachedResultName": "Customer Support & Issue Tracker",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1J1xQU-x8aP7Oj8laLpIc2m0KTJqnK8USJfBH2Fv54w8/edit#gid=1475978946"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Issue Type": "={{ $('Parse Classification').item.json.issue_type }}",
+            "Urgency": "={{ $('Parse Classification').item.json.urgency }}",
+            "Equipment": "={{ $('Parse Classification').item.json.equipment }}",
+            "Summary": "={{ $('Parse Classification').item.json.summary }}",
+            "Timestamp": "={{ $('Parse Classification').item.json.timestamp }}",
+            "Transcript": "={{ $('Parse Classification').item.json.transcript }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Customer",
+              "displayName": "Customer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Urgency",
+              "displayName": "Urgency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Issue Type",
+              "displayName": "Issue Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Equipment",
+              "displayName": "Equipment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Summary",
+              "displayName": "Summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Transcript",
+              "displayName": "Transcript",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1088,
+        -48
+      ],
+      "id": "32b353a3-d669-4993-bced-5d12d8c355ea",
+      "name": "Log to Job History",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "LQhvWR7Hj12psl2g",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ebbd731c-cc5b-4c0e-ba6c-56feac68467d",
+              "leftValue": "={{ $json.message.voice }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        -512,
+        -160
+      ],
+      "id": "c3448494-f3a1-484a-bed5-05f793bb7ebf",
+      "name": "Filter for audio"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Incoming Voice Note": {
+      "main": [
+        [
+          {
+            "node": "Filter for audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Audio": {
+      "main": [
+        [
+          {
+            "node": "Fix Audio Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fix Audio Format": {
+      "main": [
+        [
+          {
+            "node": "Transcribe Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribe Audio": {
+      "main": [
+        [
+          {
+            "node": "Classify Urgency",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Urgency": {
+      "main": [
+        [
+          {
+            "node": "Parse Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Classification": {
+      "main": [
+        [
+          {
+            "node": "Check If Emergency",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Emergency": {
+      "main": [
+        [
+          {
+            "node": "Alert Dispatcher",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log to Job History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Dispatcher": {
+      "main": [
+        [
+          {
+            "node": "Log to Job History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter for audio": {
+      "main": [
+        [
+          {
+            "node": "Download Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "625498c2-8677-4b50-a7c7-509c85d72511",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "69d3e6bdf5c0ef98b0c958de65c433308e4a0a7680aaccd37a7f391b908b1780"
+  },
+  "id": "PiEfOtUDK1bCRLBv",
+  "tags": []
+}
